@@ -231,3 +231,46 @@ def build_report(movies):
 
     print(f"\nВсе жанры каталога: {', '.join(genres)}")
 
+print(average_rating(movies))
+
+print(catalog_age_stats(movies))
+
+print(duration_in_hours(155))
+
+print(rating_tier(9.2))
+print(rating_tier(8.6))
+print(rating_tier(6.4))
+print(rating_tier(4.8))
+
+print(decade_label(2024))
+print(decade_label(2018))
+print(decade_label(2011))
+
+print(count_long_movies(movies))
+
+print(normalize_title("midnight in oslo"))
+
+print(make_slug("The Quiet Algorithm"))
+
+print(format_report_line(movies[7]))
+
+print(titles_sorted_by_rating(movies))
+
+print(top_n_by_rating(movies))
+
+print(count_by_genre(movies))
+
+print(actor_filmography(movies))
+
+print(above_average_movies)
+
+print(all_genres(movies))
+
+print(common_actors(movies[0], movies[3]))
+
+print(genres_only_in_one(movies[5:6], movies[:5]))
+
+for movie in iter_high_rated(movies):
+    print(format_report_line(movie))
+
+build_report(movies)
