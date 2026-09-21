@@ -1,6 +1,0 @@
-#!/Users/nikita/code/maga/python_1_sem/project#2_zhukov_m26_555/venv/bin/python
-import sys
-from src.primitive_db.main import main
-
-if __name__ == '__main__':
-    sys.exit(main())
