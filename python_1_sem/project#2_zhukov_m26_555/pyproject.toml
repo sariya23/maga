@@ -1,12 +1,12 @@
 [project]
 name = "yes"
-version = "0.1.0"
+version = "0.1.1"
 description = ""
 authors = [
     { name = "nikita", email = "dayzwaitik123@yandex.ru" }
 ]
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["prompt (>=0.4.1,<0.5.0)"]
 
 [tool.poetry]
 packages = [
