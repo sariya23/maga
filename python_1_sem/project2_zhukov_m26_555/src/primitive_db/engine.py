@@ -1,31 +1,34 @@
-import re
 import shlex
 
 from prettytable import PrettyTable
 
-from src.primitive_db.core import (
+from primitive_db.constants import META_FILE
+from primitive_db.core import (
     create_table,
     delete,
     drop_table,
     insert,
     select,
     update,
+    validate_value,
 )
-from src.primitive_db.parser import (
+from primitive_db.parser import (
     parse_condition,
+    parse_delete,
     parse_insert,
+    parse_select,
+    parse_update,
 )
-from src.primitive_db.utils import (
+from primitive_db.utils import (
     load_metadata,
     load_table_data,
     save_metadata,
     save_table_data,
 )
 
-METADATA_FILE = "db_meta.json"
-
 
 def print_help():
+    """Вывести справку по командам."""
     print("\n***База данных***")
 
     print("\nУправление таблицами:")
@@ -34,14 +37,8 @@ def print_help():
         "<столбец1:тип> <столбец2:тип> .. "
         "- создать таблицу"
     )
-    print(
-        "<command> list_tables "
-        "- показать список всех таблиц"
-    )
-    print(
-        "<command> drop_table <имя_таблицы> "
-        "- удалить таблицу"
-    )
+    print("<command> list_tables - показать список всех таблиц")
+    print("<command> drop_table <имя_таблицы> - удалить таблицу")
 
     print("\nОперации с данными:")
     print(
@@ -54,10 +51,7 @@ def print_help():
         "where <столбец> = <значение> "
         "- прочитать записи по условию"
     )
-    print(
-        "<command> select from <имя_таблицы> "
-        "- прочитать все записи"
-    )
+    print("<command> select from <имя_таблицы> - прочитать все записи")
     print(
         "<command> update <имя_таблицы> "
         "set <столбец> = <значение> "
@@ -69,23 +63,15 @@ def print_help():
         "where <столбец> = <значение> "
         "- удалить запись"
     )
-    print(
-        "<command> info <имя_таблицы> "
-        "- вывести информацию о таблице"
-    )
+    print("<command> info <имя_таблицы> - вывести информацию о таблице")
 
     print("\nОбщие команды:")
-    print(
-        "<command> help "
-        "- справочная информация"
-    )
-    print(
-        "<command> exit "
-        "- выход из программы\n"
-    )
+    print("<command> help - справочная информация")
+    print("<command> exit - выход из программы\n")
 
 
 def list_tables(metadata):
+    """Вывести список таблиц."""
     if not metadata:
         print("Таблиц нет.")
         return
@@ -95,34 +81,24 @@ def list_tables(metadata):
 
 
 def print_table(rows, columns):
+    """Вывести записи в табличном виде."""
     table = PrettyTable()
 
-    column_names = [
-        column["name"]
-        for column in columns
-    ]
+    column_names = [column["name"] for column in columns]
 
     table.field_names = column_names
 
     for row in rows:
-        table.add_row(
-            [
-                row.get(column)
-                for column in column_names
-            ]
-        )
+        table.add_row([row.get(column) for column in column_names])
 
     print(table)
 
 
 def handle_insert(user_input, metadata):
-    table_name, values = parse_insert(
-        user_input
-    )
+    """Разобрать команду и выполнить операцию с таблицей."""
+    table_name, values = parse_insert(user_input)
 
-    table_data = load_table_data(
-        table_name
-    )
+    table_data = load_table_data(table_name)
 
     result = insert(
         metadata,
@@ -141,66 +117,36 @@ def handle_insert(user_input, metadata):
         table_data,
     )
 
-    print(
-        f'Запись с ID={new_id} успешно добавлена '
-        f'в таблицу "{table_name}".'
-    )
+    print(f'Запись с ID={new_id} успешно добавлена в таблицу "{table_name}".')
 
 
 def handle_select(user_input, metadata):
-    pattern = (
-        r"^select\s+from\s+(\w+)"
-        r"(?:\s+where\s+(.+))?$"
-    )
-
-    match = re.match(
-        pattern,
-        user_input,
-        re.IGNORECASE,
-    )
-
-    if not match:
-        raise ValueError(
-            "Некорректная команда select."
-        )
-
-    table_name = match.group(1)
-    condition = match.group(2)
+    """Разобрать команду и выполнить операцию с таблицей."""
+    table_name, condition = parse_select(user_input)
 
     if table_name not in metadata:
-        print(
-            f'Ошибка: Таблица "{table_name}" '
-            f"не существует."
-        )
+        print(f'Ошибка: Таблица "{table_name}" не существует.')
         return
 
-    table_data = load_table_data(
-        table_name
-    )
+    table_data = load_table_data(table_name)
 
     where_clause = None
 
     if condition:
-        where_clause = parse_condition(
-            condition
-        )
+        where_clause = parse_condition(condition)
 
-        column, _ = next(
-            iter(where_clause.items())
-        )
+        column, value = next(iter(where_clause.items()))
 
         columns = {
-            item["name"]: item["type"]
-            for item
-            in metadata[table_name]["columns"]
+            item["name"]: item["type"] for item in metadata[table_name]["columns"]
         }
 
         if column not in columns:
-            print(
-                f'Ошибка: Столбца "{column}" '
-                f"не существует."
-            )
+            print(f'Ошибка: Столбца "{column}" не существует.')
             return
+
+    if where_clause and not validate_value(value, columns[column]):
+        raise ValueError(f"Некорректный тип значения для столбца {column}.")
 
     rows = select(
         table_data,
@@ -217,36 +163,10 @@ def handle_select(user_input, metadata):
 
 
 def handle_update(user_input, metadata):
-    pattern = (
-        r"^update\s+(\w+)\s+"
-        r"set\s+(.+?)\s+"
-        r"where\s+(.+)$"
-    )
+    """Разобрать команду и выполнить операцию с таблицей."""
+    table_name, set_clause, where_clause = parse_update(user_input)
 
-    match = re.match(
-        pattern,
-        user_input,
-        re.IGNORECASE,
-    )
-
-    if not match:
-        raise ValueError(
-            "Некорректная команда update."
-        )
-
-    table_name = match.group(1)
-
-    set_clause = parse_condition(
-        match.group(2)
-    )
-
-    where_clause = parse_condition(
-        match.group(3)
-    )
-
-    table_data = load_table_data(
-        table_name
-    )
+    table_data = load_table_data(table_name)
 
     result = update(
         metadata,
@@ -262,9 +182,7 @@ def handle_update(user_input, metadata):
     table_data, updated_ids = result
 
     if not updated_ids:
-        print(
-            "Подходящие записи не найдены."
-        )
+        print("Подходящие записи не найдены.")
         return
 
     save_table_data(
@@ -273,39 +191,14 @@ def handle_update(user_input, metadata):
     )
 
     for record_id in updated_ids:
-        print(
-            f'Запись с ID={record_id} '
-            f'в таблице "{table_name}" '
-            f"успешно обновлена."
-        )
+        print(f'Запись с ID={record_id} в таблице "{table_name}" успешно обновлена.')
 
 
 def handle_delete(user_input, metadata):
-    pattern = (
-        r"^delete\s+from\s+(\w+)"
-        r"\s+where\s+(.+)$"
-    )
+    """Разобрать команду и выполнить операцию с таблицей."""
+    table_name, where_clause = parse_delete(user_input)
 
-    match = re.match(
-        pattern,
-        user_input,
-        re.IGNORECASE,
-    )
-
-    if not match:
-        raise ValueError(
-            "Некорректная команда delete."
-        )
-
-    table_name = match.group(1)
-
-    where_clause = parse_condition(
-        match.group(2)
-    )
-
-    table_data = load_table_data(
-        table_name
-    )
+    table_data = load_table_data(table_name)
 
     result = delete(
         metadata,
@@ -320,9 +213,7 @@ def handle_delete(user_input, metadata):
     table_data, deleted_ids = result
 
     if not deleted_ids:
-        print(
-            "Подходящие записи не найдены."
-        )
+        print("Подходящие записи не найдены.")
         return
 
     save_table_data(
@@ -331,76 +222,52 @@ def handle_delete(user_input, metadata):
     )
 
     for record_id in deleted_ids:
-        print(
-            f'Запись с ID={record_id} '
-            f'успешно удалена из таблицы '
-            f'"{table_name}".'
-        )
+        print(f'Запись с ID={record_id} успешно удалена из таблицы "{table_name}".')
 
 
 def handle_info(user_input, metadata):
-    args = shlex.split(
-        user_input
-    )
+    """Разобрать команду и выполнить операцию с таблицей."""
+    args = shlex.split(user_input)
 
     if len(args) != 2:
-        raise ValueError(
-            "Использование: "
-            "info <имя_таблицы>."
-        )
+        raise ValueError("Использование: info <имя_таблицы>.")
 
     table_name = args[1]
 
     if table_name not in metadata:
-        print(
-            f'Ошибка: Таблица "{table_name}" '
-            f"не существует."
-        )
+        print(f'Ошибка: Таблица "{table_name}" не существует.')
         return
 
-    table_data = load_table_data(
-        table_name
-    )
+    table_data = load_table_data(table_name)
 
-    columns = metadata[
-        table_name
-    ]["columns"]
+    columns = metadata[table_name]["columns"]
 
     columns_string = ", ".join(
-        f'{column["name"]}:{column["type"]}'
-        for column in columns
+        f"{column['name']}:{column['type']}" for column in columns
     )
 
-    print(
-        f"Таблица: {table_name}"
-    )
-    print(
-        f"Столбцы: {columns_string}"
-    )
-    print(
-        f"Количество записей: "
-        f"{len(table_data)}"
-    )
+    print(f"Таблица: {table_name}")
+    print(f"Столбцы: {columns_string}")
+    print(f"Количество записей: {len(table_data)}")
 
 
 def run():
-    metadata = load_metadata(
-        METADATA_FILE
-    )
+    """Запустить интерактивный цикл команд."""
+    metadata = load_metadata(META_FILE)
 
     print_help()
 
     while True:
-        user_input = input(
-            ">>> Введите команду: "
-        ).strip()
+        try:
+            user_input = input(">>> Введите команду: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
 
         if not user_input:
             continue
 
-        command = user_input.split(
-            maxsplit=1
-        )[0].lower()
+        command = user_input.split(maxsplit=1)[0].lower()
 
         try:
             if command == "exit":
@@ -410,9 +277,7 @@ def run():
                 print_help()
 
             elif command == "create_table":
-                args = shlex.split(
-                    user_input
-                )
+                args = shlex.split(user_input)
 
                 if len(args) < 3:
                     print(
@@ -437,14 +302,12 @@ def run():
                 metadata = result
 
                 save_metadata(
-                    METADATA_FILE,
+                    META_FILE,
                     metadata,
                 )
 
             elif command == "drop_table":
-                args = shlex.split(
-                    user_input
-                )
+                args = shlex.split(user_input)
 
                 if len(args) != 2:
                     print(
@@ -468,14 +331,12 @@ def run():
                 metadata = result
 
                 save_metadata(
-                    METADATA_FILE,
+                    META_FILE,
                     metadata,
                 )
 
             elif command == "list_tables":
-                args = shlex.split(
-                    user_input
-                )
+                args = shlex.split(user_input)
 
                 if len(args) != 1:
                     print(
@@ -518,12 +379,10 @@ def run():
                 )
 
             else:
-                print(
-                    f"Функции {command} нет. "
-                    "Попробуйте снова."
-                )
+                print(f"Функции {command} нет. Попробуйте снова.")
 
-        except ValueError as error:
-            print(
-                f"Ошибка: {error}"
-            )
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        except (ValueError, OSError) as error:
+            print(f"Ошибка: {error}")
