@@ -76,10 +76,12 @@ def print_help():
 
     print("\nОбщие команды:")
     print(
-        "<command> exit - выход из программы"
+        "<command> help "
+        "- справочная информация"
     )
     print(
-        "<command> help - справочная информация\n"
+        "<command> exit "
+        "- выход из программы\n"
     )
 
 
@@ -103,30 +105,36 @@ def print_table(rows, columns):
     table.field_names = column_names
 
     for row in rows:
-        table.add_row([
-            row.get(column)
-            for column in column_names
-        ])
+        table.add_row(
+            [
+                row.get(column)
+                for column in column_names
+            ]
+        )
 
     print(table)
 
 
 def handle_insert(user_input, metadata):
-    table_name, values = parse_insert(user_input)
+    table_name, values = parse_insert(
+        user_input
+    )
 
-    if table_name not in metadata:
-        raise ValueError(
-            f'Таблица "{table_name}" не существует.'
-        )
+    table_data = load_table_data(
+        table_name
+    )
 
-    table_data = load_table_data(table_name)
-
-    table_data, new_id = insert(
+    result = insert(
         metadata,
         table_name,
         values,
         table_data,
     )
+
+    if result is None:
+        return
+
+    table_data, new_id = result
 
     save_table_data(
         table_name,
@@ -160,35 +168,47 @@ def handle_select(user_input, metadata):
     condition = match.group(2)
 
     if table_name not in metadata:
-        raise ValueError(
-            f'Таблица "{table_name}" не существует.'
+        print(
+            f'Ошибка: Таблица "{table_name}" '
+            f"не существует."
         )
+        return
 
-    table_data = load_table_data(table_name)
+    table_data = load_table_data(
+        table_name
+    )
 
     where_clause = None
 
     if condition:
-        where_clause = parse_condition(condition)
+        where_clause = parse_condition(
+            condition
+        )
 
-        column, value = next(
+        column, _ = next(
             iter(where_clause.items())
         )
 
         columns = {
             item["name"]: item["type"]
-            for item in metadata[table_name]["columns"]
+            for item
+            in metadata[table_name]["columns"]
         }
 
         if column not in columns:
-            raise ValueError(
-                f'Столбца "{column}" не существует.'
+            print(
+                f'Ошибка: Столбца "{column}" '
+                f"не существует."
             )
+            return
 
     rows = select(
         table_data,
         where_clause,
     )
+
+    if rows is None:
+        return
 
     print_table(
         rows,
@@ -216,11 +236,6 @@ def handle_update(user_input, metadata):
 
     table_name = match.group(1)
 
-    if table_name not in metadata:
-        raise ValueError(
-            f'Таблица "{table_name}" не существует.'
-        )
-
     set_clause = parse_condition(
         match.group(2)
     )
@@ -233,7 +248,7 @@ def handle_update(user_input, metadata):
         table_name
     )
 
-    table_data, updated_ids = update(
+    result = update(
         metadata,
         table_name,
         table_data,
@@ -241,8 +256,15 @@ def handle_update(user_input, metadata):
         where_clause,
     )
 
+    if result is None:
+        return
+
+    table_data, updated_ids = result
+
     if not updated_ids:
-        print("Подходящие записи не найдены.")
+        print(
+            "Подходящие записи не найдены."
+        )
         return
 
     save_table_data(
@@ -277,11 +299,6 @@ def handle_delete(user_input, metadata):
 
     table_name = match.group(1)
 
-    if table_name not in metadata:
-        raise ValueError(
-            f'Таблица "{table_name}" не существует.'
-        )
-
     where_clause = parse_condition(
         match.group(2)
     )
@@ -290,15 +307,22 @@ def handle_delete(user_input, metadata):
         table_name
     )
 
-    table_data, deleted_ids = delete(
+    result = delete(
         metadata,
         table_name,
         table_data,
         where_clause,
     )
 
+    if result is None:
+        return
+
+    table_data, deleted_ids = result
+
     if not deleted_ids:
-        print("Подходящие записи не найдены.")
+        print(
+            "Подходящие записи не найдены."
+        )
         return
 
     save_table_data(
@@ -315,19 +339,24 @@ def handle_delete(user_input, metadata):
 
 
 def handle_info(user_input, metadata):
-    args = shlex.split(user_input)
+    args = shlex.split(
+        user_input
+    )
 
     if len(args) != 2:
         raise ValueError(
-            "Использование: info <имя_таблицы>."
+            "Использование: "
+            "info <имя_таблицы>."
         )
 
     table_name = args[1]
 
     if table_name not in metadata:
-        raise ValueError(
-            f'Таблица "{table_name}" не существует.'
+        print(
+            f'Ошибка: Таблица "{table_name}" '
+            f"не существует."
         )
+        return
 
     table_data = load_table_data(
         table_name
@@ -342,8 +371,12 @@ def handle_info(user_input, metadata):
         for column in columns
     )
 
-    print(f"Таблица: {table_name}")
-    print(f"Столбцы: {columns_string}")
+    print(
+        f"Таблица: {table_name}"
+    )
+    print(
+        f"Столбцы: {columns_string}"
+    )
     print(
         f"Количество записей: "
         f"{len(table_data)}"
@@ -392,21 +425,21 @@ def run():
                 table_name = args[1]
                 columns = args[2:]
 
-                table_existed = (
-                    table_name in metadata
-                )
-
-                metadata = create_table(
+                result = create_table(
                     metadata,
                     table_name,
                     columns,
                 )
 
-                if not table_existed and table_name in metadata:
-                    save_metadata(
-                        METADATA_FILE,
-                        metadata,
-                    )
+                if result is None:
+                    continue
+
+                metadata = result
+
+                save_metadata(
+                    METADATA_FILE,
+                    metadata,
+                )
 
             elif command == "drop_table":
                 args = shlex.split(
@@ -424,20 +457,20 @@ def run():
 
                 table_name = args[1]
 
-                table_existed = (
-                    table_name in metadata
-                )
-
-                metadata = drop_table(
+                result = drop_table(
                     metadata,
                     table_name,
                 )
 
-                if table_existed:
-                    save_metadata(
-                        METADATA_FILE,
-                        metadata,
-                    )
+                if result is None:
+                    continue
+
+                metadata = result
+
+                save_metadata(
+                    METADATA_FILE,
+                    metadata,
+                )
 
             elif command == "list_tables":
                 args = shlex.split(
@@ -491,4 +524,6 @@ def run():
                 )
 
         except ValueError as error:
-            print(f"Ошибка: {error}")
+            print(
+                f"Ошибка: {error}"
+            )

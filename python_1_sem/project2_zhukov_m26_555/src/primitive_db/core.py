@@ -1,4 +1,13 @@
+from src.decorators import (
+    confirm_action,
+    create_cacher,
+    handle_db_errors,
+    log_time,
+)
+
 SUPPORTED_TYPES = {"int", "str", "bool"}
+
+cache_result = create_cacher()
 
 
 def validate_value(value, expected_type):
@@ -17,55 +26,64 @@ def validate_value(value, expected_type):
     return isinstance(value, type_map[expected_type])
 
 
+@handle_db_errors
 def create_table(metadata, table_name, columns):
     if table_name in metadata:
-        print(f'Ошибка: Таблица "{table_name}" уже существует.')
-        return metadata
+        raise ValueError(
+            f'Таблица "{table_name}" уже существует.'
+        )
 
     parsed_columns = []
     has_id = False
 
     for column in columns:
         if ":" not in column:
-            print(f"Некорректное значение: {column}. Попробуйте снова.")
-            return metadata
+            raise ValueError(
+                f"Некорректное значение: {column}."
+            )
 
         column_name, column_type = column.split(":", 1)
 
         if not column_name or not column_type:
-            print(f"Некорректное значение: {column}. Попробуйте снова.")
-            return metadata
+            raise ValueError(
+                f"Некорректное значение: {column}."
+            )
 
         if column_type not in SUPPORTED_TYPES:
-            print(f"Некорректное значение: {column}. Попробуйте снова.")
-            return metadata
+            raise ValueError(
+                f"Некорректный тип: {column_type}."
+            )
 
         if column_name.lower() == "id":
             if has_id:
-                print("Некорректное значение: ID указан несколько раз.")
-                return metadata
+                raise ValueError(
+                    "ID указан несколько раз."
+                )
 
             if column_type != "int":
-                print("Некорректное значение: ID должен иметь тип int.")
-                return metadata
+                raise ValueError(
+                    "ID должен иметь тип int."
+                )
 
             has_id = True
             column_name = "ID"
 
         if any(
-            existing["name"].lower() == column_name.lower()
+            existing["name"].lower()
+            == column_name.lower()
             for existing in parsed_columns
         ):
-            print(
-                f"Некорректное значение: столбец "
-                f'"{column_name}" указан несколько раз.'
+            raise ValueError(
+                f'Столбец "{column_name}" '
+                f"указан несколько раз."
             )
-            return metadata
 
-        parsed_columns.append({
-            "name": column_name,
-            "type": column_type,
-        })
+        parsed_columns.append(
+            {
+                "name": column_name,
+                "type": column_type,
+            }
+        )
 
     if not has_id:
         parsed_columns.insert(
@@ -93,21 +111,33 @@ def create_table(metadata, table_name, columns):
     return metadata
 
 
+@confirm_action("удаление таблицы")
+@handle_db_errors
 def drop_table(metadata, table_name):
     if table_name not in metadata:
-        print(f'Ошибка: Таблица "{table_name}" не существует.')
-        return metadata
+        raise KeyError(
+            f'Таблица "{table_name}" не существует.'
+        )
 
     del metadata[table_name]
 
-    print(f'Таблица "{table_name}" успешно удалена.')
+    print(
+        f'Таблица "{table_name}" успешно удалена.'
+    )
 
     return metadata
 
 
-def insert(metadata, table_name, values, table_data):
+@log_time
+@handle_db_errors
+def insert(
+    metadata,
+    table_name,
+    values,
+    table_data,
+):
     if table_name not in metadata:
-        raise ValueError(
+        raise KeyError(
             f'Таблица "{table_name}" не существует.'
         )
 
@@ -121,20 +151,30 @@ def insert(metadata, table_name, values, table_data):
 
     if len(values) != len(columns_without_id):
         raise ValueError(
-            f"Ожидалось значений: {len(columns_without_id)}, "
+            f"Ожидалось значений: "
+            f"{len(columns_without_id)}, "
             f"получено: {len(values)}."
         )
 
-    for column, value in zip(columns_without_id, values):
-        if not validate_value(value, column["type"]):
+    for column, value in zip(
+        columns_without_id,
+        values,
+    ):
+        if not validate_value(
+            value,
+            column["type"],
+        ):
             raise ValueError(
-                f'Некорректный тип значения для столбца '
-                f'"{column["name"]}". '
+                f'Некорректный тип значения '
+                f'для столбца "{column["name"]}". '
                 f'Ожидается {column["type"]}.'
             )
 
     new_id = max(
-        (row["ID"] for row in table_data),
+        (
+            row["ID"]
+            for row in table_data
+        ),
         default=0,
     ) + 1
 
@@ -142,7 +182,10 @@ def insert(metadata, table_name, values, table_data):
         "ID": new_id,
     }
 
-    for column, value in zip(columns_without_id, values):
+    for column, value in zip(
+        columns_without_id,
+        values,
+    ):
         record[column["name"]] = value
 
     table_data.append(record)
@@ -150,19 +193,45 @@ def insert(metadata, table_name, values, table_data):
     return table_data, new_id
 
 
-def select(table_data, where_clause=None):
+@log_time
+@handle_db_errors
+def select(
+    table_data,
+    where_clause=None,
+):
     if where_clause is None:
-        return table_data
+        cache_key = (
+            "select_all",
+            str(table_data),
+        )
+    else:
+        cache_key = (
+            "select_where",
+            str(table_data),
+            tuple(where_clause.items()),
+        )
 
-    column, value = next(iter(where_clause.items()))
+    def get_result():
+        if where_clause is None:
+            return table_data
 
-    return [
-        row
-        for row in table_data
-        if row.get(column) == value
-    ]
+        column, value = next(
+            iter(where_clause.items())
+        )
+
+        return [
+            row
+            for row in table_data
+            if row.get(column) == value
+        ]
+
+    return cache_result(
+        cache_key,
+        get_result,
+    )
 
 
+@handle_db_errors
 def update(
     metadata,
     table_name,
@@ -171,7 +240,7 @@ def update(
     where_clause,
 ):
     if table_name not in metadata:
-        raise ValueError(
+        raise KeyError(
             f'Таблица "{table_name}" не существует.'
         )
 
@@ -191,12 +260,12 @@ def update(
     )
 
     if set_column not in column_types:
-        raise ValueError(
+        raise KeyError(
             f'Столбца "{set_column}" не существует.'
         )
 
     if where_column not in column_types:
-        raise ValueError(
+        raise KeyError(
             f'Столбца "{where_column}" не существует.'
         )
 
@@ -210,8 +279,8 @@ def update(
         column_types[set_column],
     ):
         raise ValueError(
-            f'Некорректный тип значения для столбца '
-            f'"{set_column}". '
+            f'Некорректный тип значения '
+            f'для столбца "{set_column}". '
             f'Ожидается {column_types[set_column]}.'
         )
 
@@ -220,8 +289,8 @@ def update(
         column_types[where_column],
     ):
         raise ValueError(
-            f'Некорректный тип значения для столбца '
-            f'"{where_column}". '
+            f'Некорректный тип значения '
+            f'для столбца "{where_column}". '
             f'Ожидается {column_types[where_column]}.'
         )
 
@@ -235,6 +304,8 @@ def update(
     return table_data, updated_ids
 
 
+@confirm_action("удаление записи")
+@handle_db_errors
 def delete(
     metadata,
     table_name,
@@ -242,7 +313,7 @@ def delete(
     where_clause,
 ):
     if table_name not in metadata:
-        raise ValueError(
+        raise KeyError(
             f'Таблица "{table_name}" не существует.'
         )
 
@@ -258,7 +329,7 @@ def delete(
     )
 
     if where_column not in column_types:
-        raise ValueError(
+        raise KeyError(
             f'Столбца "{where_column}" не существует.'
         )
 
@@ -267,8 +338,8 @@ def delete(
         column_types[where_column],
     ):
         raise ValueError(
-            f'Некорректный тип значения для столбца '
-            f'"{where_column}". '
+            f'Некорректный тип значения '
+            f'для столбца "{where_column}". '
             f'Ожидается {column_types[where_column]}.'
         )
 
