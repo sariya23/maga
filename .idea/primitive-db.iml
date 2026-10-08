@@ -2,7 +2,7 @@
 <module external.system.id="pyproject.toml" type="PYTHON_MODULE" version="4">
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$/python_1_sem/project2_zhukov_m26_555">
-      <sourceFolder url="file://$MODULE_DIR$/python_1_sem/project2_zhukov_m26_555/src" />
+      <sourceFolder url="file://$MODULE_DIR$/python_1_sem/project2_zhukov_m26_555/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/python_1_sem/project2_zhukov_m26_555/.venv" />
     </content>
     <orderEntry type="sourceFolder" forTests="false" />
