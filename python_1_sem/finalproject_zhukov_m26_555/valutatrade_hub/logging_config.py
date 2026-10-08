@@ -50,3 +50,31 @@ def configure_logging() -> logging.Logger:
             logger.addHandler(handler)
             logger._config_signature = signature
         return logger
+
+
+def configure_parser_logging() -> logging.Logger:
+    settings = SettingsLoader()
+    path = Path(settings.get("LOG_DIR")) / "parser.log"
+    with _LOCK:
+        logger = logging.getLogger("valutatrade.parser")
+        logger.setLevel(settings.get("LOG_LEVEL"))
+        logger.propagate = False
+        if getattr(logger, "_parser_path", None) != str(path):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            handler = RotatingFileHandler(
+                path,
+                maxBytes=settings.get("LOG_MAX_BYTES"),
+                backupCount=settings.get("LOG_BACKUP_COUNT"),
+                encoding="utf-8",
+            )
+            formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+            import time
+
+            formatter.converter = time.gmtime
+            handler.setFormatter(formatter)
+            for old in logger.handlers[:]:
+                logger.removeHandler(old)
+                old.close()
+            logger.addHandler(handler)
+            logger._parser_path = str(path)
+        return logger

@@ -3,7 +3,6 @@ from datetime import datetime, timedelta, timezone
 
 from valutatrade_hub.core.currencies import get_currency
 from valutatrade_hub.core.exceptions import ApiRequestError
-from valutatrade_hub.core.models import Portfolio
 from valutatrade_hub.infra.database import JsonStorage
 from valutatrade_hub.infra.settings import SettingsLoader
 
@@ -26,27 +25,19 @@ def validate_amount(value: float) -> float:
 
 
 class RateService:
-    """Курсы: свежий кеш, обратная/кросс-пара или учебная заглушка."""
+    """Прямые, обратные и кросс-курсы только из свежего локального кеша."""
 
     def __init__(self, storage: JsonStorage) -> None:
         self.storage = storage
-        self.exchange_rates = Portfolio.exchange_rates.copy()
         self.settings = SettingsLoader()
 
     @property
     def ttl(self) -> timedelta:
         return timedelta(seconds=self.settings.get("RATES_TTL_SECONDS"))
 
-    def _fetch_usd_rate(self, code: str) -> float:
-        """Точка подключения Parser Service вместо учебной заглушки."""
-        try:
-            return validate_amount(self.exchange_rates[code])
-        except (KeyError, TypeError, ValueError) as exc:
-            raise ApiRequestError(f"нет данных для {code}→USD") from exc
-
     @staticmethod
     def _timestamp(value: str) -> datetime:
-        timestamp = datetime.fromisoformat(value)
+        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
         # Для старого кеша без часового пояса считаем время UTC.
         if timestamp.tzinfo is None:
             timestamp = timestamp.replace(tzinfo=timezone.utc)
@@ -78,41 +69,25 @@ class RateService:
         source = validate_currency(from_currency)
         target = validate_currency(to_currency)
         now = datetime.now(timezone.utc)
-        with self.storage.transaction("rates") as documents:
-            result = self._resolve_rate(documents["rates"], source, target, now)
+        document = self.storage.read("rates")
+        cache = document.get("pairs", {})
+        if not isinstance(cache, dict):
+            raise ApiRequestError("неверный формат кеша; выполните update-rates")
+        result = self._resolve_rate(cache, source, target, now)
         return {"from_currency": source, "to_currency": target, **result}
 
     def _resolve_rate(
         self, cache: dict, source: str, target: str, now: datetime
     ) -> dict:
         result = self._cached_pair(cache, source, target, now)
-        if result is None:
-            legs = []
-            refreshed = False
-            for code in (source, target):
-                leg = self._cached_pair(cache, code, "USD", now)
-                if leg is None:
-                    try:
-                        fetched_rate = validate_amount(self._fetch_usd_rate(code))
-                    except ApiRequestError:
-                        raise
-                    except (OSError, ValueError, TypeError) as exc:
-                        raise ApiRequestError(str(exc)) from exc
-                    leg = {
-                        "rate": fetched_rate,
-                        "updated_at": now.isoformat(),
-                    }
-                    cache[f"{code}_USD"] = leg
-                    refreshed = True
-                legs.append(leg)
-            rate = legs[0]["rate"] / legs[1]["rate"]
-            if not math.isfinite(rate) or rate <= 0:
-                raise ApiRequestError(f"некорректный курс {source}→{target}")
-            result = {
-                "rate": rate,
-                "updated_at": min(leg["updated_at"] for leg in legs),
-            }
-            if refreshed:
-                cache["source"] = "StubRateService"
-                cache["last_refresh"] = now.isoformat()
-        return result
+        if result is not None:
+            return result
+        legs = [self._cached_pair(cache, code, "USD", now) for code in (source, target)]
+        if any(leg is None for leg in legs):
+            raise ApiRequestError(
+                f"курс {source}→{target} отсутствует или устарел; выполните update-rates"
+            )
+        return {
+            "rate": validate_amount(legs[0]["rate"] / legs[1]["rate"]),
+            "updated_at": min(leg["updated_at"] for leg in legs),
+        }
