@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import math
 from datetime import datetime
+from typing import ClassVar
 
 
 class User:
@@ -127,3 +128,85 @@ class Wallet:
         if amount <= 0:
             raise ValueError("Сумма должна быть положительной")
         return amount
+
+
+class Portfolio:
+    exchange_rates: ClassVar[dict[str, float]] = {
+        "USD": 1.0,
+        "EUR": 1.1,
+        "RUB": 0.01,
+        "BTC": 60000.0,
+        "ETH": 3000.0,
+    }
+
+    def __init__(
+        self,
+        user_id: int,
+        user: User,
+        wallets: dict[str, Wallet] | None = None,
+    ) -> None:
+        if type(user_id) is not int or user_id <= 0:
+            raise ValueError("Идентификатор должен быть положительным целым числом")
+        if not isinstance(user, User):
+            raise TypeError("Пользователь должен быть объектом User")
+        if user.user_id != user_id:
+            raise ValueError("Идентификатор портфеля не совпадает с пользователем")
+        if wallets is not None and not isinstance(wallets, dict):
+            raise TypeError("Кошельки должны быть словарём")
+
+        self._user_id = user_id
+        self._user = user
+        self._wallets: dict[str, Wallet] = {}
+        for code, wallet in (wallets or {}).items():
+            code = self._normalize_currency(code)
+            if not isinstance(wallet, Wallet):
+                raise TypeError("Значение словаря должно быть объектом Wallet")
+            if code != wallet.currency_code:
+                raise ValueError("Ключ словаря не совпадает с валютой кошелька")
+            if code in self._wallets:
+                raise ValueError(f"Кошелёк {code} уже существует")
+            self._wallets[code] = wallet
+
+    @property
+    def user_id(self) -> int:
+        return self._user_id
+
+    @property
+    def user(self) -> User:
+        return self._user
+
+    @property
+    def wallets(self) -> dict[str, Wallet]:
+        return self._wallets.copy()
+
+    def add_currency(self, currency_code: str) -> None:
+        code = self._normalize_currency(currency_code)
+        if code in self._wallets:
+            raise ValueError(f"Кошелёк {code} уже существует")
+        self._wallets[code] = Wallet(code)
+
+    def get_wallet(self, currency_code: str) -> Wallet:
+        code = self._normalize_currency(currency_code)
+        if code not in self._wallets:
+            raise KeyError(f"Кошелёк {code} не найден")
+        return self._wallets[code]
+
+    def get_total_value(self, base_currency: str = "USD") -> float:
+        base_currency = self._normalize_currency(base_currency)
+        if base_currency not in self.exchange_rates:
+            raise ValueError(f"Неизвестен курс валюты {base_currency}")
+        base_rate = self.exchange_rates[base_currency]
+        values = []
+        for code, wallet in self._wallets.items():
+            if wallet.balance == 0:
+                continue
+            if code not in self.exchange_rates:
+                raise ValueError(f"Неизвестен курс валюты {code}")
+            values.append(wallet.balance * (self.exchange_rates[code] / base_rate))
+        return math.fsum(values)
+
+    @staticmethod
+    def _normalize_currency(currency_code: str) -> str:
+        if not isinstance(currency_code, str) or not currency_code.strip():
+            raise ValueError("Код валюты не может быть пустым")
+        return currency_code.strip().upper()
