@@ -3,23 +3,26 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
+from valutatrade_hub.core.exceptions import InsufficientFundsError, StorageError
 from valutatrade_hub.core.models import Portfolio, User, Wallet
 from valutatrade_hub.core.utils import (
-    DEFAULT_DATA_DIR,
-    JsonStorage,
     RateService,
-    RateUnavailableError,
-    StorageError,
     validate_amount,
     validate_currency,
 )
+from valutatrade_hub.decorators import log_action
+from valutatrade_hub.infra.database import JsonStorage
+from valutatrade_hub.infra.settings import SettingsLoader
+from valutatrade_hub.logging_config import configure_logging
 
 
 class CoreService:
-    def __init__(self, data_dir: str | Path = DEFAULT_DATA_DIR) -> None:
+    def __init__(self, data_dir: str | Path | None = None) -> None:
+        self.settings = SettingsLoader()
         self.storage = JsonStorage(data_dir)
         self.rates = RateService(self.storage)
         self._current_user: User | None = None
+        configure_logging()
 
     @staticmethod
     def _username(username: str) -> str:
@@ -27,17 +30,21 @@ class CoreService:
             raise ValueError("Имя пользователя не может быть пустым")
         return username.strip()
 
-    def _users(self) -> list[User]:
+    def _users(self, records: list | None = None) -> list[User]:
         users = []
         try:
-            for row in self.storage.read("users"):
-                users.append(User(
-                    user_id=row["user_id"],
-                    username=row["username"],
-                    hashed_password=row["hashed_password"],
-                    salt=row["salt"],
-                    registration_date=datetime.fromisoformat(row["registration_date"]),
-                ))
+            for row in self.storage.read("users") if records is None else records:
+                users.append(
+                    User(
+                        user_id=row["user_id"],
+                        username=row["username"],
+                        hashed_password=row["hashed_password"],
+                        salt=row["salt"],
+                        registration_date=datetime.fromisoformat(
+                            row["registration_date"]
+                        ),
+                    )
+                )
         except (KeyError, TypeError, ValueError) as exc:
             raise StorageError(f"Неверные данные в users.json: {exc}") from exc
         return users
@@ -50,33 +57,28 @@ class CoreService:
             "salt": user.salt,
         }
 
+    @log_action("REGISTER")
     def register(self, username: str, password: str) -> dict:
         username = self._username(username)
         if not isinstance(password, str) or len(password) < 4:
             raise ValueError("Пароль должен быть не короче 4 символов")
-        users = self._users()
-        if any(user.username == username for user in users):
-            raise ValueError(f"Имя пользователя '{username}' уже занято")
-        portfolios = self.storage.read("portfolios")
-        user = User(
-            user_id=max((user.user_id for user in users), default=0) + 1,
-            username=username,
-            hashed_password="pending",
-            salt=secrets.token_hex(16),
-            registration_date=datetime.now(timezone.utc),
-        )
-        user.change_password(password)
-        saved_users = [self._serialize_user(item) for item in users]
-        self.storage.write("users", [*saved_users, self._serialize_user(user)])
-        try:
-            self.storage.write("portfolios", [
-                *portfolios, {"user_id": user.user_id, "wallets": {}},
-            ])
-        except OSError:
-            self.storage.write("users", saved_users)
-            raise
+        with self.storage.transaction("users", "portfolios") as documents:
+            users = self._users(documents["users"])
+            if any(user.username == username for user in users):
+                raise ValueError(f"Имя пользователя '{username}' уже занято")
+            user = User(
+                user_id=max((user.user_id for user in users), default=0) + 1,
+                username=username,
+                hashed_password="pending",
+                salt=secrets.token_hex(16),
+                registration_date=datetime.now(timezone.utc),
+            )
+            user.change_password(password)
+            documents["users"].append(self._serialize_user(user))
+            documents["portfolios"].append({"user_id": user.user_id, "wallets": {}})
         return user.get_user_info()
 
+    @log_action("LOGIN")
     def login(self, username: str, password: str) -> dict:
         username = self._username(username)
         user = next((user for user in self._users() if user.username == username), None)
@@ -92,10 +94,11 @@ class CoreService:
             raise ValueError("Сначала выполните login")
         return self._current_user
 
-    def _load_portfolio(self) -> Portfolio:
+    def _load_portfolio(self, records: list | None = None) -> Portfolio:
         user = self._require_login()
         try:
-            records = self.storage.read("portfolios")
+            if records is None:
+                records = self.storage.read("portfolios")
             row = next((row for row in records if row["user_id"] == user.user_id), None)
             if row is None:
                 raise StorageError("Портфель пользователя не найден")
@@ -107,8 +110,7 @@ class CoreService:
         except (KeyError, TypeError, AttributeError, ValueError) as exc:
             raise StorageError(f"Неверные данные в portfolios.json: {exc}") from exc
 
-    def _save_portfolio(self, portfolio: Portfolio) -> None:
-        records = self.storage.read("portfolios")
+    def _save_portfolio(self, portfolio: Portfolio, records: list) -> None:
         for index, row in enumerate(records):
             if row["user_id"] == portfolio.user_id:
                 records[index] = {
@@ -118,39 +120,42 @@ class CoreService:
                         for code, wallet in portfolio.wallets.items()
                     },
                 }
-                self.storage.write("portfolios", records)
                 return
         raise StorageError("Портфель пользователя не найден")
 
     def get_rate(self, from_currency: str, to_currency: str) -> dict:
         return self.rates.get_rate(from_currency, to_currency)
 
-    def show_portfolio(self, base: str = "USD") -> dict:
+    def show_portfolio(self, base: str | None = None) -> dict:
         portfolio = self._load_portfolio()
-        base = validate_currency(base)
-        try:
-            self.get_rate(base, "USD")
-        except RateUnavailableError:
-            raise ValueError(f"Неизвестная базовая валюта '{base}'") from None
+        base = validate_currency(
+            base if base is not None else self.settings.get("DEFAULT_BASE_CURRENCY")
+        )
         rows = []
         for code, wallet in portfolio.wallets.items():
             rate = self.get_rate(code, base)["rate"]
             value = wallet.balance * rate
             if not math.isfinite(value):
                 raise ValueError("Стоимость портфеля слишком велика")
-            rows.append({"currency_code": code, "balance": wallet.balance, "value": value})
+            rows.append(
+                {"currency_code": code, "balance": wallet.balance, "value": value}
+            )
         try:
             total = math.fsum(row["value"] for row in rows)
         except OverflowError:
             raise ValueError("Стоимость портфеля слишком велика") from None
         return {
-            "username": portfolio.user.username, "base_currency": base,
-            "wallets": rows, "total": total,
+            "username": portfolio.user.username,
+            "base_currency": base,
+            "wallets": rows,
+            "total": total,
         }
 
+    @log_action("BUY", verbose=True)
     def buy(self, currency: str, amount: float) -> dict:
         return self._trade("buy", currency, amount)
 
+    @log_action("SELL", verbose=True)
     def sell(self, currency: str, amount: float) -> dict:
         return self._trade("sell", currency, amount)
 
@@ -158,23 +163,22 @@ class CoreService:
         self._require_login()
         code = validate_currency(currency)
         amount = validate_amount(amount)
-        portfolio = self._load_portfolio()
+        with self.storage.transaction("portfolios") as documents:
+            portfolio = self._load_portfolio(documents["portfolios"])
+            result = self._execute_trade(portfolio, operation, code, amount)
+            self._save_portfolio(portfolio, documents["portfolios"])
+        return result
+
+    def _execute_trade(
+        self, portfolio: Portfolio, operation: str, code: str, amount: float
+    ) -> dict:
         if operation == "sell":
             if code not in portfolio.wallets:
-                raise ValueError(
-                    f"У вас нет кошелька '{code}'. Добавьте валюту: "
-                    "она создаётся автоматически при первой покупке."
-                )
+                raise InsufficientFundsError(0.0, amount, code)
             balance = portfolio.get_wallet(code).balance
             if amount > balance:
-                raise ValueError(
-                    f"Недостаточно средств: доступно {balance:.4f} {code}, "
-                    f"требуется {amount:.4f} {code}"
-                )
-        try:
-            quote = self.get_rate(code, "USD")
-        except RateUnavailableError:
-            raise ValueError(f"Не удалось получить курс для {code}→USD") from None
+                raise InsufficientFundsError(balance, amount, code)
+        quote = self.get_rate(code, "USD")
         value = amount * quote["rate"]
         if not math.isfinite(value):
             raise ValueError("Стоимость сделки слишком велика")
@@ -186,9 +190,13 @@ class CoreService:
             wallet.deposit(amount)
         else:
             wallet.withdraw(amount)
-        self._save_portfolio(portfolio)
         return {
-            "operation": operation, "currency_code": code, "amount": amount,
-            "before": before, "after": wallet.balance, "rate": quote["rate"],
+            "operation": operation,
+            "currency_code": code,
+            "amount": amount,
+            "before": before,
+            "after": wallet.balance,
+            "rate": quote["rate"],
             "value": value,
+            "base": "USD",
         }

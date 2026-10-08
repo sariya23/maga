@@ -30,7 +30,9 @@ coverage.xml
 !.env.example
 
 # Logs
+logs/
 *.log
+*.log.*
 
 # IDE and OS files
 .idea/

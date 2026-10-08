@@ -4,6 +4,12 @@ import math
 from datetime import datetime
 from typing import ClassVar
 
+from valutatrade_hub.core.currencies import get_currency
+from valutatrade_hub.core.exceptions import (
+    CurrencyNotFoundError,
+    InsufficientFundsError,
+)
+
 
 class User:
     def __init__(
@@ -81,10 +87,12 @@ class User:
 
 class Wallet:
     def __init__(self, currency_code: str, balance: float = 0.0) -> None:
-        if not isinstance(currency_code, str) or not currency_code.strip():
-            raise ValueError("Код валюты не может быть пустым")
-        self.currency_code = currency_code.strip().upper()
+        self._currency_code = get_currency(currency_code).code
         self.balance = balance
+
+    @property
+    def currency_code(self) -> str:
+        return self._currency_code
 
     @property
     def balance(self) -> float:
@@ -104,7 +112,7 @@ class Wallet:
     def withdraw(self, amount: float) -> None:
         amount = self._validate_amount(amount)
         if amount > self.balance:
-            raise ValueError("Недостаточно средств")
+            raise InsufficientFundsError(self.balance, amount, self.currency_code)
         self.balance = self.balance - amount
 
     def get_balance_info(self) -> dict[str, str | float]:
@@ -194,19 +202,17 @@ class Portfolio:
     def get_total_value(self, base_currency: str = "USD") -> float:
         base_currency = self._normalize_currency(base_currency)
         if base_currency not in self.exchange_rates:
-            raise ValueError(f"Неизвестен курс валюты {base_currency}")
+            raise CurrencyNotFoundError(base_currency)
         base_rate = self.exchange_rates[base_currency]
         values = []
         for code, wallet in self._wallets.items():
             if wallet.balance == 0:
                 continue
             if code not in self.exchange_rates:
-                raise ValueError(f"Неизвестен курс валюты {code}")
+                raise CurrencyNotFoundError(code)
             values.append(wallet.balance * (self.exchange_rates[code] / base_rate))
         return math.fsum(values)
 
     @staticmethod
     def _normalize_currency(currency_code: str) -> str:
-        if not isinstance(currency_code, str) or not currency_code.strip():
-            raise ValueError("Код валюты не может быть пустым")
-        return currency_code.strip().upper()
+        return get_currency(currency_code).code

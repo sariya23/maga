@@ -2,8 +2,13 @@ import argparse
 import shlex
 import sys
 
+from valutatrade_hub.core.currencies import supported_codes
+from valutatrade_hub.core.exceptions import (
+    ApiRequestError,
+    CurrencyNotFoundError,
+    InsufficientFundsError,
+)
 from valutatrade_hub.core.usecases import CoreService
-from valutatrade_hub.core.utils import DEFAULT_DATA_DIR
 
 
 class CommandError(ValueError):
@@ -16,17 +21,24 @@ class CommandParser(argparse.ArgumentParser):
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = CommandParser(prog="valutatrade", description="Виртуальный валютный портфель")
-    parser.add_argument("--data-dir", default=str(DEFAULT_DATA_DIR),
-                        help="Каталог JSON-файлов (по умолчанию data в проекте)")
+    parser = CommandParser(
+        prog="valutatrade", description="Виртуальный валютный портфель"
+    )
+    parser.add_argument(
+        "--data-dir", help="Каталог JSON-файлов (по умолчанию из config.json)"
+    )
     commands = parser.add_subparsers(dest="command")
-    for name, description in (("register", "Зарегистрироваться"),
-                              ("login", "Войти в систему")):
+    for name, description in (
+        ("register", "Зарегистрироваться"),
+        ("login", "Войти в систему"),
+    ):
         command = commands.add_parser(name, help=description)
         command.add_argument("--username", required=True)
         command.add_argument("--password", required=True)
     portfolio = commands.add_parser("show-portfolio", help="Показать портфель")
-    portfolio.add_argument("--base", default="USD")
+    portfolio.add_argument(
+        "--base", help="Базовая валюта (по умолчанию из config.json)"
+    )
     for name, description in (("buy", "Купить валюту"), ("sell", "Продать валюту")):
         command = commands.add_parser(name, help=description)
         command.add_argument("--currency", required=True)
@@ -34,7 +46,19 @@ def build_parser() -> argparse.ArgumentParser:
     rate = commands.add_parser("get-rate", help="Получить курс валюты")
     rate.add_argument("--from", dest="from_currency", required=True)
     rate.add_argument("--to", dest="to_currency", required=True)
-    commands.add_parser("help", help="Список команд")
+    help_command = commands.add_parser("help", help="Справка по командам")
+    help_command.add_argument(
+        "topic",
+        nargs="?",
+        choices=(
+            "register",
+            "login",
+            "show-portfolio",
+            "buy",
+            "sell",
+            "get-rate",
+        ),
+    )
     commands.add_parser("exit", help="Завершить сессию")
     return parser
 
@@ -48,6 +72,19 @@ def parse_amount(value: str) -> float:
         ) from None
 
 
+def error_message(error: Exception) -> str:
+    if isinstance(error, InsufficientFundsError):
+        return str(error)
+    if isinstance(error, CurrencyNotFoundError):
+        return (
+            f"{error}. Поддерживаемые валюты: {', '.join(supported_codes())}. "
+            "Справка: help get-rate"
+        )
+    if isinstance(error, ApiRequestError):
+        return f"{error}. Повторите попытку позже или проверьте подключение к сети."
+    return f"Ошибка: {error}"
+
+
 class CLI:
     def __init__(self, service: CoreService) -> None:
         self.service = service
@@ -57,12 +94,20 @@ class CLI:
         if args.command == "exit":
             return False
         if args.command in (None, "help"):
-            self.parser.print_help()
+            if getattr(args, "topic", None):
+                try:
+                    self.parser.parse_args([args.topic, "--help"])
+                except SystemExit:
+                    pass
+            else:
+                self.parser.print_help()
         elif args.command == "register":
             user = self.service.register(args.username, args.password)
-            print(f"Пользователь '{user['username']}' зарегистрирован "
-                  f"(id={user['user_id']}). Войдите: "
-                  f"login --username {shlex.quote(user['username'])} --password ****")
+            print(
+                f"Пользователь '{user['username']}' зарегистрирован "
+                f"(id={user['user_id']}). Войдите: "
+                f"login --username {shlex.quote(user['username'])} --password ****"
+            )
         elif args.command == "login":
             user = self.service.login(args.username, args.password)
             print(f"Вы вошли как '{user['username']}'")
@@ -73,8 +118,10 @@ class CLI:
             if not result["wallets"]:
                 print("В портфеле пока нет кошельков.")
             for wallet in result["wallets"]:
-                print(f"- {wallet['currency_code']}: {wallet['balance']:.4f} "
-                      f"→ {wallet['value']:,.2f} {base}")
+                print(
+                    f"- {wallet['currency_code']}: {wallet['balance']:.4f} "
+                    f"→ {wallet['value']:,.2f} {base}"
+                )
             print("---------------------------------")
             print(f"ИТОГО: {result['total']:,.2f} {base}")
         elif args.command in ("buy", "sell"):
@@ -82,23 +129,37 @@ class CLI:
             result = action(args.currency, args.amount)
             code = result["currency_code"]
             label = "Покупка" if args.command == "buy" else "Продажа"
-            print(f"{label} выполнена: {result['amount']:.4f} {code} "
-                  f"по курсу {result['rate']:.8f} USD/{code}")
+            print(
+                f"{label} выполнена: {result['amount']:.4f} {code} "
+                f"по курсу {result['rate']:.8f} USD/{code}"
+            )
             print("Изменения в портфеле:")
-            print(f"- {code}: было {result['before']:.4f} → стало {result['after']:.4f}")
-            label = "Оценочная стоимость покупки" if args.command == "buy" else "Оценочная выручка"
+            print(
+                f"- {code}: было {result['before']:.4f} → стало {result['after']:.4f}"
+            )
+            label = (
+                "Оценочная стоимость покупки"
+                if args.command == "buy"
+                else "Оценочная выручка"
+            )
             print(f"{label}: {result['value']:,.2f} USD")
         elif args.command == "get-rate":
             result = self.service.get_rate(args.from_currency, args.to_currency)
             source, target = result["from_currency"], result["to_currency"]
-            print(f"Курс {source}→{target}: {result['rate']:.8f} "
-                  f"(обновлено: {result['updated_at']})")
+            print(
+                f"Курс {source}→{target}: {result['rate']:.8f} "
+                f"(обновлено: {result['updated_at']})"
+            )
             print(f"Обратный курс {target}→{source}: {1 / result['rate']:.8f}")
         return True
 
     def run(self) -> None:
-        print("ValutaTrade Hub. Учебный режим, Parser не подключён; используются кеш и заглушка.")
-        print("Команды: register, login, show-portfolio, buy, sell, get-rate, help, exit.")
+        print(
+            "ValutaTrade Hub. Учебный режим, Parser не подключён; используются кеш и заглушка."
+        )
+        print(
+            "Команды: register, login, show-portfolio, buy, sell, get-rate, help, exit."
+        )
         while True:
             try:
                 line = input("> ").strip()
@@ -117,7 +178,7 @@ class CLI:
                 if exc.code:
                     print("Ошибка аргументов команды")
             except (ValueError, TypeError, OSError) as exc:
-                print(f"Ошибка: {exc}")
+                print(error_message(exc))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -130,7 +191,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             cli.execute(args)
     except (ValueError, TypeError, OSError) as exc:
-        print(f"Ошибка: {exc}", file=sys.stderr)
+        print(error_message(exc), file=sys.stderr)
         return 1
     return 0
 
