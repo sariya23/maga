@@ -7,12 +7,13 @@ HTTP-запросы выполняются через `requests`, `.env` заг�
 
 ```bash
 uv sync
-uv run python main.py
+uv run valutatrade
 ```
 
 Внутри одной интерактивной сессии:
 
 ```text
+update-rates
 register --username alice --password 1234
 login --username alice --password 1234
 show-portfolio
@@ -64,6 +65,8 @@ Parser Service получает котировки CoinGecko и ExchangeRate-API
 В `.env` в корне проекта задайте `EXCHANGERATE_API_KEY=ваш_ключ`.
 Файл исключён из Git. Загрузка `.env` и чтение переменных окружения выполняются
 только в функции `main()` в `cli/interface.py`, вызываемой из `main.py`.
+Поддерживается также имя `EXCHANGE_RATE_API` из существующего `.env`;
+при наличии обоих ключей приоритет имеет `EXCHANGERATE_API_KEY`.
 Уже заданные переменные окружения имеют приоритет. CoinGecko вызывается без ключа.
 
 ```bash
@@ -205,6 +208,46 @@ Parser записывает кеш и историю отдельно. Чтен�
 ## Проверка
 
 ```bash
-uv run python -m unittest discover -s tests -v
-uv run ruff check .
+make lint
+make build
 ```
+
+## Структура проекта
+
+```text
+.
+├── data/
+│   ├── users.json
+│   ├── portfolios.json
+│   ├── rates.json
+│   └── exchange_rates.json  # создаётся Parser при успешном обновлении
+├── valutatrade_hub/
+│   ├── core/               # currencies, exceptions, models, usecases, utils
+│   ├── infra/              # settings, database
+│   ├── parser_service/     # config, api_clients, updater, storage, scheduler, views
+│   ├── cli/interface.py
+│   ├── logging_config.py
+│   └── decorators.py
+├── main.py
+├── config.json
+├── pyproject.toml
+├── uv.lock
+├── Makefile
+├── .env.example
+└── README.md
+```
+
+`make install` устанавливает зависимости; `make project` / `make run` запускает CLI.
+`make lint` проверяет стиль и форматирование, `make format` форматирует код,
+`make build` создаёт wheel и исходный архив в `dist/`. После `uv sync` доступна
+команда `uv run valutatrade` с теми же аргументами, что у `main.py`.
+
+`Portfolio.get_total_value(base_currency='USD')` использует свежий кеш через
+поставщика курсов. CoreService передаёт ему свой RateService, сохраняя выбранный
+каталог данных. Для отдельного Portfolio по умолчанию используются настройки
+проекта. SOL и GBP обрабатываются так же, как остальные валюты; старые котировки
+не заменяются фиксированными значениями.
+
+## Демо
+
+[Смотреть запись работы ValutaTrade Hub на asciinema](https://asciinema.org/a/sLXilBDbUKHWoYZZ).

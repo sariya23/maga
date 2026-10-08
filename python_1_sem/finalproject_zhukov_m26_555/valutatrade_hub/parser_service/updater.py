@@ -7,11 +7,14 @@ logger = logging.getLogger("valutatrade.parser")
 
 
 class RatesUpdater:
+    """Последовательный сбор котировок с изоляцией отказов источников."""
+
     def __init__(self, clients, storage) -> None:
         self.clients = list(clients)
         self.storage = storage
 
     def run_update(self) -> dict:
+        """Сохранить успешные замеры и вернуть число обновлений и ошибки."""
         logger.info("Starting rates update")
         records, errors = [], []
         for client in self.clients:

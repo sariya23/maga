@@ -2,6 +2,8 @@
 
 
 class InsufficientFundsError(ValueError):
+    """Недостаточный остаток кошелька для списания."""
+
     def __init__(self, available: float, required: float, code: str) -> None:
         self.available = available
         self.required = required
@@ -13,12 +15,16 @@ class InsufficientFundsError(ValueError):
 
 
 class CurrencyNotFoundError(ValueError):
+    """Валюта отсутствует в поддерживаемом реестре."""
+
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(f"Неизвестная валюта '{code}'")
 
 
 class ApiRequestError(ValueError):
+    """Ошибка получения или доступности котировок."""
+
     def __init__(self, reason: str) -> None:
         self.reason = reason
         super().__init__(f"Ошибка при обращении к внешнему API: {reason}")

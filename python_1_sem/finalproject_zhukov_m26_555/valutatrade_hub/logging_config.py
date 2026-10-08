@@ -11,7 +11,10 @@ _LOCK = RLock()
 
 
 class ActionFormatter(logging.Formatter):
+    """Форматирование контекста операции в JSON Lines."""
+
     def format(self, record: logging.LogRecord) -> str:
+        """Сериализовать время, уровень и контекст записи в JSON."""
         payload = {
             "timestamp": datetime.fromtimestamp(
                 record.created, timezone.utc
@@ -53,6 +56,7 @@ def configure_logging() -> logging.Logger:
 
 
 def configure_parser_logging() -> logging.Logger:
+    """Настроить отдельный журнал Parser с ротацией без дублей."""
     settings = SettingsLoader()
     path = Path(settings.get("LOG_DIR")) / "parser.log"
     with _LOCK:

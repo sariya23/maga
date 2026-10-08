@@ -6,6 +6,7 @@ from valutatrade_hub.core.exceptions import CurrencyNotFoundError
 
 
 def normalize_code(code: str) -> str:
+    """Нормализовать код из 2–5 латинских букв или цифр."""
     if not isinstance(code, str):
         raise TypeError("Код валюты должен быть строкой")
     normalized = code.strip().upper()
@@ -29,18 +30,22 @@ class Currency(ABC):
 
     @property
     def name(self) -> str:
+        """Получить или установить непустое название валюты."""
         return self._name
 
     @name.setter
     def name(self, value: str) -> None:
+        """Получить или установить непустое название валюты."""
         self._name = _nonempty(value, "Название валюты")
 
     @property
     def code(self) -> str:
+        """Получить или установить код валюты в верхнем регистре."""
         return self._code
 
     @code.setter
     def code(self, value: str) -> None:
+        """Получить или установить код валюты в верхнем регистре."""
         normalized = normalize_code(value)
         if normalized != value:
             raise ValueError("Код валюты должен быть в верхнем регистре без пробелов")
@@ -52,15 +57,20 @@ class Currency(ABC):
 
 
 class FiatCurrency(Currency):
+    """Фиатная валюта со страной эмиссии."""
+
     def __init__(self, name: str, code: str, issuing_country: str) -> None:
         super().__init__(name, code)
         self.issuing_country = _nonempty(issuing_country, "Страна эмиссии")
 
     def get_display_info(self) -> str:
+        """Вернуть описание валюты с характеристиками её типа."""
         return f"[FIAT] {self.code} — {self.name} (Issuing: {self.issuing_country})"
 
 
 class CryptoCurrency(Currency):
+    """Криптовалюта с алгоритмом и справочной капитализацией."""
+
     def __init__(self, name: str, code: str, algorithm: str, market_cap: float) -> None:
         super().__init__(name, code)
         self.algorithm = _nonempty(algorithm, "Алгоритм")
@@ -75,6 +85,7 @@ class CryptoCurrency(Currency):
         self.market_cap = market_cap
 
     def get_display_info(self) -> str:
+        """Вернуть описание валюты с характеристиками её типа."""
         mantissa, exponent = f"{self.market_cap:.2e}".split("e")
         cap = f"{mantissa.rstrip('0').rstrip('.')}e{int(exponent)}"
         return (
@@ -95,6 +106,7 @@ _CURRENCIES: dict[str, Currency] = {
 
 
 def get_currency(code: str) -> Currency:
+    """Вернуть валюту по коду или выбросить CurrencyNotFoundError."""
     normalized = normalize_code(code)
     try:
         return _CURRENCIES[normalized]
@@ -103,4 +115,5 @@ def get_currency(code: str) -> Currency:
 
 
 def supported_codes() -> tuple[str, ...]:
+    """Вернуть отсортированные коды поддерживаемых валют."""
     return tuple(sorted(_CURRENCIES))

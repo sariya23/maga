@@ -34,6 +34,7 @@ class DatabaseManager:
         return directory / settings.get(f"{name.upper()}_FILE")
 
     def read(self, name: str, data_dir: str | Path | None = None) -> list | dict:
+        """Прочитать JSON-документ ожидаемого типа или пустое хранилище."""
         with self._lock:
             path = self._path(name, data_dir)
             expected_type = dict if name == "rates" else list
@@ -56,6 +57,7 @@ class DatabaseManager:
     def write(
         self, name: str, data: list | dict, data_dir: str | Path | None = None
     ) -> None:
+        """Атомарно заменить JSON-документ после проверки сериализации."""
         with self._lock:
             path = self._path(name, data_dir)
             expected_type = dict if name == "rates" else list
@@ -127,10 +129,13 @@ class JsonStorage:
         self.manager = DatabaseManager()
 
     def read(self, name: str) -> list | dict:
+        """Прочитать JSON-документ ожидаемого типа или пустое хранилище."""
         return self.manager.read(name, self.data_dir)
 
     def write(self, name: str, data: list | dict) -> None:
+        """Атомарно заменить JSON-документ после проверки сериализации."""
         self.manager.write(name, data, self.data_dir)
 
     def transaction(self, *names: str):
+        """Открыть изменение документов под общей блокировкой менеджера."""
         return self.manager.transaction(*names, data_dir=self.data_dir)

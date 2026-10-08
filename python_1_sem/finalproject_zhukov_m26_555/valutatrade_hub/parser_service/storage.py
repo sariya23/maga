@@ -12,6 +12,8 @@ from valutatrade_hub.parser_service.config import ParserConfig
 
 
 class RatesStorage:
+    """Атомарное сохранение истории и последнего среза котировок."""
+
     def __init__(self, config: ParserConfig) -> None:
         self.rates_path = Path(config.RATES_FILE_PATH)
         self.history_path = Path(config.HISTORY_FILE_PATH)
@@ -32,6 +34,7 @@ class RatesStorage:
             raise StorageError(f"Не удалось прочитать {path.name}: {exc}") from exc
 
     def read_cache(self) -> dict:
+        """Прочитать снимок курсов; вернуть пустой словарь при отсутствии."""
         return self._read(self.rates_path, dict)
 
     @staticmethod
@@ -58,6 +61,7 @@ class RatesStorage:
 
     def save(self, records: list[dict], last_refresh: str) -> int:
         # Shared with Core within this process. Each file is replaced atomically.
+        """Добавить уникальные замеры и заменить только более свежие котировки."""
         with DatabaseManager._lock:
             cache = self.read_cache()
             history = self._read(self.history_path, list)

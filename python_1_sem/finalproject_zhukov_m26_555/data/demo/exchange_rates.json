@@ -1,0 +1,122 @@
+[
+  {
+    "id": "BTC_USD_2026-10-08T20:59:46Z",
+    "from_currency": "BTC",
+    "to_currency": "USD",
+    "rate": 81758.0,
+    "timestamp": "2026-10-08T20:59:46Z",
+    "source": "CoinGecko",
+    "meta": {
+      "request_ms": 1053,
+      "status_code": 200,
+      "etag": "W/\"ebd6396378018fd159b08aafe914a3f5\"",
+      "raw_id": "bitcoin"
+    }
+  },
+  {
+    "id": "ETH_USD_2026-10-08T20:59:46Z",
+    "from_currency": "ETH",
+    "to_currency": "USD",
+    "rate": 2474.11,
+    "timestamp": "2026-10-08T20:59:46Z",
+    "source": "CoinGecko",
+    "meta": {
+      "request_ms": 1053,
+      "status_code": 200,
+      "etag": "W/\"ebd6396378018fd159b08aafe914a3f5\"",
+      "raw_id": "ethereum"
+    }
+  },
+  {
+    "id": "SOL_USD_2026-10-08T20:59:46Z",
+    "from_currency": "SOL",
+    "to_currency": "USD",
+    "rate": 109.81,
+    "timestamp": "2026-10-08T20:59:46Z",
+    "source": "CoinGecko",
+    "meta": {
+      "request_ms": 1053,
+      "status_code": 200,
+      "etag": "W/\"ebd6396378018fd159b08aafe914a3f5\"",
+      "raw_id": "solana"
+    }
+  },
+  {
+    "id": "BTC_USD_2026-10-08T21:02:38Z",
+    "from_currency": "BTC",
+    "to_currency": "USD",
+    "rate": 81764.0,
+    "timestamp": "2026-10-08T21:02:38Z",
+    "source": "CoinGecko",
+    "meta": {
+      "request_ms": 957,
+      "status_code": 200,
+      "etag": "W/\"288efa3caa3eabb29e6b97acdfb93bd0\"",
+      "raw_id": "bitcoin"
+    }
+  },
+  {
+    "id": "ETH_USD_2026-10-08T21:02:38Z",
+    "from_currency": "ETH",
+    "to_currency": "USD",
+    "rate": 2473.85,
+    "timestamp": "2026-10-08T21:02:38Z",
+    "source": "CoinGecko",
+    "meta": {
+      "request_ms": 957,
+      "status_code": 200,
+      "etag": "W/\"288efa3caa3eabb29e6b97acdfb93bd0\"",
+      "raw_id": "ethereum"
+    }
+  },
+  {
+    "id": "SOL_USD_2026-10-08T21:02:38Z",
+    "from_currency": "SOL",
+    "to_currency": "USD",
+    "rate": 109.83,
+    "timestamp": "2026-10-08T21:02:38Z",
+    "source": "CoinGecko",
+    "meta": {
+      "request_ms": 957,
+      "status_code": 200,
+      "etag": "W/\"288efa3caa3eabb29e6b97acdfb93bd0\"",
+      "raw_id": "solana"
+    }
+  },
+  {
+    "id": "EUR_USD_2026-10-08T00:00:01Z",
+    "from_currency": "EUR",
+    "to_currency": "USD",
+    "rate": 1.1196954428395476,
+    "timestamp": "2026-10-08T00:00:01Z",
+    "source": "ExchangeRate-API",
+    "meta": {
+      "request_ms": 968,
+      "status_code": 200
+    }
+  },
+  {
+    "id": "GBP_USD_2026-10-08T00:00:01Z",
+    "from_currency": "GBP",
+    "to_currency": "USD",
+    "rate": 1.3215276860050218,
+    "timestamp": "2026-10-08T00:00:01Z",
+    "source": "ExchangeRate-API",
+    "meta": {
+      "request_ms": 968,
+      "status_code": 200
+    }
+  },
+  {
+    "id": "RUB_USD_2026-10-08T00:00:01Z",
+    "from_currency": "RUB",
+    "to_currency": "USD",
+    "rate": 0.011693772832091455,
+    "timestamp": "2026-10-08T00:00:01Z",
+    "source": "ExchangeRate-API",
+    "meta": {
+      "request_ms": 968,
+      "status_code": 200
+    }
+  }
+]

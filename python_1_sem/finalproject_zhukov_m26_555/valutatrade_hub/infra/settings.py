@@ -3,6 +3,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Any, ClassVar
 
+from valutatrade_hub.core.constants import REFERENCE_CURRENCY
 from valutatrade_hub.core.currencies import get_currency
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -25,6 +26,7 @@ class SettingsLoader:
             return cls._instance
 
     def get(self, key: str, default: Any = None) -> Any:
+        """Вернуть значение настройки или переданное значение по умолчанию."""
         with self._lock:
             return self._settings.get(key, default)
 
@@ -38,7 +40,7 @@ class SettingsLoader:
                 "PORTFOLIOS_FILE": "portfolios.json",
                 "RATES_FILE": "rates.json",
                 "RATES_TTL_SECONDS": 300,
-                "DEFAULT_BASE_CURRENCY": "USD",
+                "DEFAULT_BASE_CURRENCY": REFERENCE_CURRENCY,
                 "LOG_DIR": "logs",
                 "LOG_FILE": "actions.log",
                 "LOG_FORMAT": "json",

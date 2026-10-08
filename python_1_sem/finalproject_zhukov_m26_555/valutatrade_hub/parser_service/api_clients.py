@@ -11,6 +11,7 @@ from valutatrade_hub.parser_service.config import ParserConfig
 
 
 def utc_timestamp(value: datetime | None = None) -> str:
+    """Представить дату ISO-строкой UTC с суффиксом Z."""
     return (
         (value or datetime.now(timezone.utc))
         .astimezone(timezone.utc)
@@ -20,6 +21,8 @@ def utc_timestamp(value: datetime | None = None) -> str:
 
 
 class BaseApiClient(ABC):
+    """Контракт получения курсов и метаданных измерений API."""
+
     source = ""
 
     def __init__(self, config: ParserConfig) -> None:
@@ -66,9 +69,12 @@ class BaseApiClient(ABC):
 
 
 class CoinGeckoClient(BaseApiClient):
+    """Котировки криптовалют по CoinGecko ID без API-ключа."""
+
     source = "CoinGecko"
 
     def fetch_rates(self) -> dict[str, float]:
+        """Получить пары и положительные курсы; сохранить метаданные замеров."""
         config = self.config
         try:
             ids = [config.CRYPTO_ID_MAP[code] for code in config.CRYPTO_CURRENCIES]
@@ -105,9 +111,12 @@ class CoinGeckoClient(BaseApiClient):
 
 
 class ExchangeRateApiClient(BaseApiClient):
+    """Котировки фиатных валют, инвертированные к базовой валюте."""
+
     source = "ExchangeRate-API"
 
     def fetch_rates(self) -> dict[str, float]:
+        """Получить пары и положительные курсы; сохранить метаданные замеров."""
         config = self.config
         if not config.EXCHANGERATE_API_KEY:
             raise ApiRequestError(

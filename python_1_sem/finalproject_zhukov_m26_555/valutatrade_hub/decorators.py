@@ -2,6 +2,7 @@ import inspect
 import math
 from functools import wraps
 
+from valutatrade_hub.core.constants import REFERENCE_CURRENCY
 from valutatrade_hub.logging_config import configure_logging
 
 
@@ -36,7 +37,7 @@ def log_action(action: str | None = None, *, verbose: bool = False):
                 "amount": _log_value(arguments.get("amount")),
                 "rate": None,
                 "base": (
-                    arguments.get("to_currency", "USD")
+                    arguments.get("to_currency", REFERENCE_CURRENCY)
                     if "currency" in arguments or "from_currency" in arguments
                     else None
                 ),

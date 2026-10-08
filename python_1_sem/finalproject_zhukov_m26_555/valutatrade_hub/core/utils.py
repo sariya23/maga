@@ -1,6 +1,7 @@
 import math
 from datetime import datetime, timedelta, timezone
 
+from valutatrade_hub.core.constants import REFERENCE_CURRENCY
 from valutatrade_hub.core.currencies import get_currency
 from valutatrade_hub.core.exceptions import ApiRequestError
 from valutatrade_hub.infra.database import JsonStorage
@@ -8,10 +9,12 @@ from valutatrade_hub.infra.settings import SettingsLoader
 
 
 def validate_currency(value: str) -> str:
+    """Нормализовать код и проверить наличие валюты в реестре."""
     return get_currency(value).code
 
 
 def validate_amount(value: float) -> float:
+    """Вернуть положительное конечное число, отклонив bool и строки."""
     message = "'amount' должен быть положительным числом"
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise TypeError(message)
@@ -33,6 +36,7 @@ class RateService:
 
     @property
     def ttl(self) -> timedelta:
+        """Вернуть актуальный срок годности котировки из настроек."""
         return timedelta(seconds=self.settings.get("RATES_TTL_SECONDS"))
 
     @staticmethod
@@ -82,7 +86,10 @@ class RateService:
         result = self._cached_pair(cache, source, target, now)
         if result is not None:
             return result
-        legs = [self._cached_pair(cache, code, "USD", now) for code in (source, target)]
+        legs = [
+            self._cached_pair(cache, code, REFERENCE_CURRENCY, now)
+            for code in (source, target)
+        ]
         if any(leg is None for leg in legs):
             raise ApiRequestError(
                 f"курс {source}→{target} отсутствует или устарел; выполните update-rates"

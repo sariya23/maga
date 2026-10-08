@@ -1,12 +1,14 @@
 from datetime import datetime, timezone
 
+from valutatrade_hub.core.constants import REFERENCE_CURRENCY
 from valutatrade_hub.core.currencies import CryptoCurrency, get_currency
 from valutatrade_hub.core.utils import RateService, validate_amount
 
 
 def cached_rates(
-    cache: dict, ttl: int, currency=None, top=None, base="USD"
+    cache: dict, ttl: int, currency=None, top=None, base=REFERENCE_CURRENCY
 ) -> list[dict]:
+    """Отфильтровать и пересчитать кеш, пометив устаревшие значения."""
     pairs = cache.get("pairs", {})
     if not pairs:
         raise ValueError(
@@ -17,9 +19,14 @@ def cached_rates(
     if top is not None and top <= 0:
         raise ValueError("--top должен быть положительным целым числом")
     quotes = {
-        key.split("_")[0]: entry for key, entry in pairs.items() if key.endswith("_USD")
+        key.split("_")[0]: entry
+        for key, entry in pairs.items()
+        if key.endswith(f"_{REFERENCE_CURRENCY}")
     }
-    quotes["USD"] = {"rate": 1.0, "updated_at": datetime.now(timezone.utc).isoformat()}
+    quotes[REFERENCE_CURRENCY] = {
+        "rate": 1.0,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
     if base not in quotes:
         raise ValueError(f"Курс для '{base}' не найден в кеше.")
     rows = []
@@ -32,7 +39,7 @@ def cached_rates(
         timestamps = [
             RateService._timestamp(q["updated_at"])
             for c, q in ((code, entry), (base, target))
-            if c != "USD"
+            if c != REFERENCE_CURRENCY
         ]
         timestamp = min(timestamps)
         age = (datetime.now(timezone.utc) - timestamp).total_seconds()

@@ -2,8 +2,12 @@ import logging
 import math
 from threading import Event
 
+from valutatrade_hub.parser_service.config import ParserConfig
 
-def run_scheduler(updater, interval: float = 3600, stop: Event | None = None) -> None:
+
+def run_scheduler(
+    updater, interval: float = ParserConfig.UPDATE_INTERVAL, stop: Event | None = None
+) -> None:
     """Update immediately, then wait interval seconds; Event allows clean shutdown."""
     if not math.isfinite(interval) or interval <= 0:
         raise ValueError("Интервал обновления должен быть положительным")

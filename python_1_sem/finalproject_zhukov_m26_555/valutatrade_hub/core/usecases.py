@@ -3,6 +3,7 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
+from valutatrade_hub.core.constants import REFERENCE_CURRENCY
 from valutatrade_hub.core.exceptions import InsufficientFundsError, StorageError
 from valutatrade_hub.core.models import Portfolio, User, Wallet
 from valutatrade_hub.core.utils import (
@@ -17,6 +18,8 @@ from valutatrade_hub.logging_config import configure_logging
 
 
 class CoreService:
+    """Сценарии регистрации, сессии и операций с валютным портфелем."""
+
     def __init__(self, data_dir: str | Path | None = None) -> None:
         self.settings = SettingsLoader()
         self.storage = JsonStorage(data_dir)
@@ -59,6 +62,7 @@ class CoreService:
 
     @log_action("REGISTER")
     def register(self, username: str, password: str) -> dict:
+        """Создать пользователя и пустой портфель, проверив уникальность имени."""
         username = self._username(username)
         if not isinstance(password, str) or len(password) < 4:
             raise ValueError("Пароль должен быть не короче 4 символов")
@@ -80,6 +84,7 @@ class CoreService:
 
     @log_action("LOGIN")
     def login(self, username: str, password: str) -> dict:
+        """Проверить пароль и установить пользователя текущей сессии."""
         username = self._username(username)
         user = next((user for user in self._users() if user.username == username), None)
         if user is None:
@@ -106,7 +111,7 @@ class CoreService:
                 code: Wallet(code, entry["balance"])
                 for code, entry in row["wallets"].items()
             }
-            return Portfolio(user.user_id, user, wallets)
+            return Portfolio(user.user_id, user, wallets, rate_provider=self.get_rate)
         except (KeyError, TypeError, AttributeError, ValueError) as exc:
             raise StorageError(f"Неверные данные в portfolios.json: {exc}") from exc
 
@@ -124,9 +129,11 @@ class CoreService:
         raise StorageError("Портфель пользователя не найден")
 
     def get_rate(self, from_currency: str, to_currency: str) -> dict:
+        """Вернуть свежую котировку пары или доменную ошибку."""
         return self.rates.get_rate(from_currency, to_currency)
 
     def show_portfolio(self, base: str | None = None) -> dict:
+        """Оценить кошельки текущего пользователя в выбранной валюте."""
         portfolio = self._load_portfolio()
         base = validate_currency(
             base if base is not None else self.settings.get("DEFAULT_BASE_CURRENCY")
@@ -153,10 +160,12 @@ class CoreService:
 
     @log_action("BUY", verbose=True)
     def buy(self, currency: str, amount: float) -> dict:
+        """Добавить валюту в кошелёк и вернуть оценочную стоимость покупки."""
         return self._trade("buy", currency, amount)
 
     @log_action("SELL", verbose=True)
     def sell(self, currency: str, amount: float) -> dict:
+        """Списать валюту при достаточном остатке и вернуть оценочную выручку."""
         return self._trade("sell", currency, amount)
 
     def _trade(self, operation: str, currency: str, amount: float) -> dict:
@@ -178,7 +187,7 @@ class CoreService:
             balance = portfolio.get_wallet(code).balance
             if amount > balance:
                 raise InsufficientFundsError(balance, amount, code)
-        quote = self.get_rate(code, "USD")
+        quote = self.get_rate(code, REFERENCE_CURRENCY)
         value = amount * quote["rate"]
         if not math.isfinite(value):
             raise ValueError("Стоимость сделки слишком велика")
@@ -198,5 +207,5 @@ class CoreService:
             "after": wallet.balance,
             "rate": quote["rate"],
             "value": value,
-            "base": "USD",
+            "base": REFERENCE_CURRENCY,
         }

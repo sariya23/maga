@@ -5,7 +5,9 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
+from prettytable import PrettyTable
 
+from valutatrade_hub.core.constants import REFERENCE_CURRENCY
 from valutatrade_hub.core.currencies import supported_codes
 from valutatrade_hub.core.exceptions import (
     ApiRequestError,
@@ -27,15 +29,19 @@ from valutatrade_hub.parser_service.views import cached_rates
 
 
 class CommandError(ValueError):
-    pass
+    """Ошибка разбора команды без завершения интерактивной сессии."""
 
 
 class CommandParser(argparse.ArgumentParser):
+    """Парсер, преобразующий ошибки аргументов в CommandError."""
+
     def error(self, message: str) -> None:
+        """Передать ошибку аргументов обработчику интерактивной сессии."""
         raise CommandError(message)
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Создать парсер всех команд приложения."""
     parser = CommandParser(
         prog="valutatrade", description="Виртуальный валютный портфель"
     )
@@ -67,12 +73,12 @@ def build_parser() -> argparse.ArgumentParser:
         "schedule-rates", help="Периодически обновлять курсы"
     )
     schedule.add_argument(
-        "--interval", type=float, default=3600, help="Интервал в секундах"
+        "--interval", type=float, default=None, help="Интервал в секундах"
     )
     show = commands.add_parser("show-rates", help="Показать локальный кеш курсов")
     show.add_argument("--currency")
     show.add_argument("--top", type=int)
-    show.add_argument("--base", default="USD")
+    show.add_argument("--base", default=REFERENCE_CURRENCY)
     help_command = commands.add_parser("help", help="Справка по командам")
     help_command.add_argument(
         "topic",
@@ -94,6 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def parse_amount(value: str) -> float:
+    """Преобразовать аргумент суммы в число для доменной проверки."""
     try:
         return float(value)
     except ValueError:
@@ -103,6 +110,7 @@ def parse_amount(value: str) -> float:
 
 
 def error_message(error: Exception) -> str:
+    """Подготовить понятное пользователю сообщение об исключении."""
     if isinstance(error, InsufficientFundsError):
         return str(error)
     if isinstance(error, CurrencyNotFoundError):
@@ -116,6 +124,8 @@ def error_message(error: Exception) -> str:
 
 
 class CLI:
+    """Разбор команд и отображение результатов сервисов."""
+
     def __init__(
         self, service: CoreService, config: ParserConfig | None = None
     ) -> None:
@@ -131,6 +141,7 @@ class CLI:
         self.exit_code = 0
 
     def updater(self, source=None) -> RatesUpdater:
+        """Собрать обновление курсов для выбранных API-источников."""
         configure_parser_logging()
         clients = []
         if source in (None, "coingecko"):
@@ -140,6 +151,7 @@ class CLI:
         return RatesUpdater(clients, self.rate_storage)
 
     def execute(self, args: argparse.Namespace) -> bool:
+        """Выполнить команду; вернуть False при запросе выхода."""
         if args.command == "exit":
             return False
         if args.command in (None, "help"):
@@ -162,7 +174,12 @@ class CLI:
                     print(error)
         elif args.command == "schedule-rates":
             try:
-                run_scheduler(self.updater(), args.interval)
+                run_scheduler(
+                    self.updater(),
+                    self.config.UPDATE_INTERVAL
+                    if args.interval is None
+                    else args.interval,
+                )
             except KeyboardInterrupt:
                 print("Планировщик остановлен.")
         elif args.command == "show-rates":
@@ -177,11 +194,20 @@ class CLI:
             print(
                 f"Курсы из кеша (последняя проверка: {cache.get('last_refresh', '—')}):"
             )
+            table = PrettyTable(["Пара", "Курс", "Обновлено (UTC)", "Статус"])
+            table.align = "l"
             for row in rows:
-                suffix = " [устарел; выполните update-rates]" if row["stale"] else ""
-                print(
-                    f"- {row['pair']}: {row['rate']:.8f} (обновлено: {row['updated_at']}){suffix}"
+                table.add_row(
+                    [
+                        row["pair"],
+                        f"{row['rate']:.8f}",
+                        row["updated_at"],
+                        "устарел; выполните update-rates"
+                        if row["stale"]
+                        else "актуален",
+                    ]
                 )
+            print(table)
         elif args.command == "register":
             user = self.service.register(args.username, args.password)
             print(
@@ -235,6 +261,7 @@ class CLI:
         return True
 
     def run(self) -> None:
+        """Читать команды до выхода, обрабатывая ошибки без потери сессии."""
         print("ValutaTrade Hub. Курсы из локального кеша Parser Service.")
         print(
             "Команды: register, login, show-portfolio, buy, sell, get-rate, update-rates, show-rates, schedule-rates, help, exit."
@@ -261,6 +288,7 @@ class CLI:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Загрузить окружение, собрать сервисы и вернуть код завершения CLI."""
     parser = build_parser()
     try:
         args = parser.parse_args(argv)
@@ -268,7 +296,9 @@ def main(argv: list[str] | None = None) -> int:
         service = CoreService(args.data_dir)
         directory = Path(service.storage.data_dir)
         config = ParserConfig(
-            EXCHANGERATE_API_KEY=os.getenv("EXCHANGERATE_API_KEY"),
+            EXCHANGERATE_API_KEY=(
+                os.getenv("EXCHANGERATE_API_KEY") or os.getenv("EXCHANGE_RATE_API")
+            ),
             RATES_FILE_PATH=str(directory / service.settings.get("RATES_FILE")),
             HISTORY_FILE_PATH=str(directory / "exchange_rates.json"),
         )
