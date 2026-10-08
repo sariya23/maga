@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import math
 from datetime import datetime
 
 
@@ -75,3 +76,54 @@ class User:
 
     def _hash_password(self, password: str) -> str:
         return hashlib.sha256((password + self.salt).encode("utf-8")).hexdigest()
+
+
+class Wallet:
+    def __init__(self, currency_code: str, balance: float = 0.0) -> None:
+        if not isinstance(currency_code, str) or not currency_code.strip():
+            raise ValueError("Код валюты не может быть пустым")
+        self.currency_code = currency_code.strip().upper()
+        self.balance = balance
+
+    @property
+    def balance(self) -> float:
+        return self._balance
+
+    @balance.setter
+    def balance(self, value: float) -> None:
+        value = self._validate_number(value)
+        if value < 0:
+            raise ValueError("Баланс не может быть отрицательным")
+        self._balance = value
+
+    def deposit(self, amount: float) -> None:
+        amount = self._validate_amount(amount)
+        self.balance = self.balance + amount
+
+    def withdraw(self, amount: float) -> None:
+        amount = self._validate_amount(amount)
+        if amount > self.balance:
+            raise ValueError("Недостаточно средств")
+        self.balance = self.balance - amount
+
+    def get_balance_info(self) -> dict[str, str | float]:
+        return {"currency_code": self.currency_code, "balance": self.balance}
+
+    @staticmethod
+    def _validate_number(value: float) -> float:
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise TypeError("Значение должно быть числом")
+        try:
+            number = float(value)
+        except OverflowError:
+            raise ValueError("Значение должно быть конечным числом") from None
+        if not math.isfinite(number):
+            raise ValueError("Значение должно быть конечным числом")
+        return number
+
+    @classmethod
+    def _validate_amount(cls, amount: float) -> float:
+        amount = cls._validate_number(amount)
+        if amount <= 0:
+            raise ValueError("Сумма должна быть положительной")
+        return amount
