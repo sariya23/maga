@@ -1,6 +1,4 @@
-def main():
-    print("Hello from sql!")
+from hw3.main import main
 
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
